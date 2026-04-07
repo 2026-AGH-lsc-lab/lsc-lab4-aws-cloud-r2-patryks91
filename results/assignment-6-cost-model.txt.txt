@@ -1,0 +1,87 @@
+=== Assignment 6: Cost Model, Break-Even, and Recommendation ===
+
+Date: 2024-04-06
+Region: us-east-1
+
+=== Traffic Model ===
+
+Peak: 100 RPS × 30 min/day = 180,000 requests/day
+Normal: 5 RPS × 5.5 hours/day = 99,000 requests/day
+Idle: 18 hours/day (0 RPS)
+Total: 279,000 requests/day = 8,370,000 requests/month
+
+=== Monthly Cost Calculation ===
+
+LAMBDA (512 MB, ~207ms avg duration):
+- Request cost: 8,370,000 / 1,000,000 × $0.20 = $1.67
+- GB-seconds: 8,370,000 × 0.207 sec × 0.5 GB = 866,295 GB-sec
+- Duration cost: 866,295 × $0.0000166667 = $14.44
+- TOTAL: $16.11/month
+
+FARGATE (0.5 vCPU, 1 GB, 24/7):
+- $0.024685/hour × 24 × 30 = $17.77/month
+
+EC2 (t3.small, 24/7):
+- $0.0208/hour × 24 × 30 = $14.98/month
+
+=== Cost Comparison ===
+
+| Environment | Monthly Cost |
+|-------------|--------------|
+| Lambda      | $16.11       |
+| Fargate     | $17.77       |
+| EC2         | $14.98       |
+
+=== Break-Even Analysis ===
+
+Lambda cost per request:
+- Request fee: $0.20 / 1,000,000 = $0.0000002
+- Duration fee: 0.207 sec × 0.5 GB × $0.0000166667 = $0.000001725
+- Total per request: $0.000001925
+
+Break-even vs Fargate:
+- Fargate monthly: $17.77
+- Break-even requests: $17.77 / $0.000001925 = 9,231,169 requests/month
+- Break-even RPS: 9,231,169 / (30 × 24 × 3600) = 3.56 RPS
+
+Break-even vs EC2:
+- EC2 monthly: $14.98
+- Break-even requests: $14.98 / $0.000001925 = 7,781,818 requests/month
+- Break-even RPS: 7,781,818 / (30 × 24 × 3600) = 3.00 RPS
+
+=== SLO Compliance (p99 < 500ms) ===
+
+| Environment      | Warm p99  | Burst p99 | Meets SLO? |
+|------------------|-----------|-----------|------------|
+| Lambda Zip       | 491 ms    | 1756 ms   | NO         |
+| Lambda Container | 500 ms    | 1416 ms   | NO         |
+| Fargate          | 1205 ms   | 4265 ms   | NO         |
+| EC2              | 1399 ms   | 1383 ms   | NO         |
+
+=== RECOMMENDATION ===
+
+For the given traffic model (sporadic, spiky, p99 < 500ms SLO):
+
+RECOMMENDED: Lambda with Provisioned Concurrency
+
+Justification:
+1. COST: Lambda ($16.11) is comparable to EC2 ($14.98) and cheaper than Fargate ($17.77)
+2. SCALING: Lambda auto-scales instantly, no capacity planning needed
+3. IDLE COST: Lambda has zero cost during 18h idle period (vs $14.98 EC2, $17.77 Fargate)
+
+CHANGES NEEDED TO MEET SLO:
+- Enable Provisioned Concurrency (10 instances) to eliminate cold starts
+- Estimated additional cost: 10 × 0.5 GB × 3600 × 24 × 30 × $0.000004 = ~$51.84/month
+- Total with PC: ~$68/month
+
+ALTERNATIVE: EC2 with Auto Scaling
+- Baseline: 1 × t3.small ($14.98/month)
+- Add instances during peak traffic
+- Requires more operational overhead
+
+CONDITIONS FOR REVERSAL:
+- If average RPS > 3.56: Consider Fargate/EC2 (Lambda becomes more expensive)
+- If SLO relaxed to p99 < 2000ms: Lambda without PC is acceptable
+- If traffic becomes predictable: EC2 with reserved instances is cheapest
+
+=== END OF REPORT ===
